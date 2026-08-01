@@ -2,10 +2,8 @@
 
 namespace App\Form\User;
 
-use App\Entity\User;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\PasswordType;
-use Symfony\Component\Form\Extension\Core\Type\RepeatedType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
@@ -23,7 +21,6 @@ class UserPasswordResetForm extends AbstractType
                     'data-password-update-target' => 'currentPasswordInput',
                 ],
                 'row_attr' => ['class' => 'form-floating mb-4'],
-                'help' => 'Required to decrypt and safely transfer your private E2EE key envelope.',
             ])
             ->add('newPassword', PasswordType::class, [
                 'attr' => [
@@ -47,7 +44,7 @@ class UserPasswordResetForm extends AbstractType
                 'row_attr' => ['class' => 'form-floating mb-4'],
                 'help' => 'Must match the new password.',
             ])
-            ;
+        ;
     }
 
     public function configureOptions(OptionsResolver $resolver): void

@@ -15,7 +15,7 @@ use Symfony\Component\Security\Http\Event\CheckPassportEvent;
  * Enforces Cloudflare Turnstile on the login steps that the firewall handles
  * itself, where there is no controller to put the siteverify call into.
  *
- * Two flows are gated:
+ * Two flows can be gated:
  *   - password login  (form_login -> PasswordCredentials)
  *   - 2FA code entry  (scheb/2fa -> TwoFactorCodeCredentials)
  *
@@ -47,8 +47,8 @@ final class TurnstileAuthenticationSubscriber implements EventSubscriberInterfac
     {
         $passport = $event->getPassport();
 
-        $isGuardedFlow = $passport->hasBadge(PasswordCredentials::class)
-            || $passport->hasBadge(TwoFactorCodeCredentials::class);
+        $isGuardedFlow = $passport->hasBadge(PasswordCredentials::class);
+//            || $passport->hasBadge(TwoFactorCodeCredentials::class);
 
         if (!$isGuardedFlow) {
             return;

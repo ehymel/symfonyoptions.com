@@ -1,0 +1,84 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Proposed Options Positions{% endblock %}
+
+{% block body %}
+    <div class="container-fluid py-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="h3 mb-0">Proposed Options Strategies</h1>
+                <p class="text-muted mb-0">Review automatically screened trades before dispatching to broker API.</p>
+            </div>
+            <a href="{{ path('app_trading_proposed_index') }}" class="btn btn-outline-secondary btn-sm">
+                Refresh List
+            </a>
+        </div>
+
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-0">
+                {% if positions is empty %}
+                    <div class="text-center py-5">
+                        <p class="text-muted mb-0">No proposed positions pending review.</p>
+                    </div>
+                {% else %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Type</th>
+                                <th>Strike</th>
+                                <th>Expiration</th>
+                                <th>Qty</th>
+                                <th>OSI Symbol</th>
+                                <th>Generated</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for position in positions %}
+                                {% set contract = position.contract %}
+                                <tr data-controller="proposed-position" data-proposed-position-target="row">
+                                    <td>
+                                        <strong class="fs-5">{{ contract.symbol }}</strong>
+                                    </td>
+                                    <td>
+                                        {% if contract.optionType == 'PUT' %}
+                                            <span class="badge bg-danger">Cash-Secured Put</span>
+                                        {% else %}
+                                            <span class="badge bg-success">Covered Call</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>${{ contract.strikePrice|number_format(2) }}</td>
+                                    <td>
+                                        {{ contract.expirationDate|date('Y-m-d') }}
+                                        <small class="text-muted d-block">({{ contract.daysToExpiration }} DTE)</small>
+                                    </td>
+                                    <td>{{ position.quantity }}</td>
+                                    <td><code class="small">{{ contract.osiSymbol }}</code></td>
+                                    <td>
+                                        <small class="text-muted">{{ position.createdAt|date('M d, H:i') }}</small>
+                                    </td>
+                                    <td class="text-end">
+                                        <button
+                                            class="btn btn-primary btn-sm"
+                                            data-proposed-position-target="button"
+                                            data-dispatch-url-value="{{ path('app_trading_proposed_dispatch', {id: position.id}) }}"
+                                            data-action="click->proposed-position#dispatch"
+                                        >
+                                            <span class="spinner-border spinner-border-sm me-1 d-none"
+                                                  role="status"
+                                                  data-proposed-position-target="spinner"></span>
+                                            <span data-proposed-position-target="buttonText">Approve & Execute</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

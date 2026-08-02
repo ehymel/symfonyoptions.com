@@ -38,4 +38,22 @@ class PositionRepository extends ServiceEntityRepository
             $this->getEntityManager()->flush();
         }
     }
+
+    public function countActivePositionsBySymbol(string $symbol): int
+    {
+        return (int) $this->createQueryBuilder('position')
+            ->select('COUNT(position.id)')
+            ->join('position.contract', 'contract')
+            ->where('contract.symbol = :symbol')
+            ->andWhere('position.status IN (:activeStates)')
+            ->setParameter('symbol', strtoupper($symbol))
+            ->setParameter('activeStates', [
+                Position::STATE_PROPOSED,
+                Position::STATE_ORDER_PENDING,
+                Position::STATE_OPEN,
+                Position::STATE_CLOSING_PENDING
+            ])
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
 }

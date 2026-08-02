@@ -20,7 +20,7 @@ class UserController extends AbstractController
                                 private readonly string $kernelSecret) {}
 
     #[Route(path: '/edit', name: 'edit')]
-    #[IsGranted('IS_AUTHENTICATED_FULLY')]
+    #[IsGranted('IS_AUTHENTICATED_REMEMBERED')]
     public function edit(Request $request, UserPasswordHasherInterface $passwordHasher, EntityManagerInterface $em): Response
     {
         $user = $this->getUser();

@@ -2,16 +2,15 @@
 
 namespace App\Controller\Security;
 
-use App\Entity\User;
+use App\Repository\UserRepository;
 use App\Security\TurnstileAuthenticationSubscriber;
 use App\Security\TurnstileVerifier;
+use App\Service\DeferredMailer;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bridge\Twig\Mime\TemplatedEmail;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
-use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
@@ -22,9 +21,18 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 #[Route('/user/password', name: 'user_password_', methods: ['GET', 'POST'])]
 class PasswordResetController extends AbstractController
 {
+    /**
+     * Floor, in microseconds, for the account-lookup portion of a forgot-password POST.
+     * Must sit above the p99 of the slower (account exists) branch, otherwise the pad
+     * becomes a no-op exactly when that branch is slow and the timing gap reopens.
+     */
+    private const int LOOKUP_TIME_FLOOR_US = 250_000;
+
     public function __construct(
         private EntityManagerInterface $em,
         private readonly TurnstileVerifier $turnstileVerifier,
+        private readonly UserRepository $userRepository,
+        private readonly DeferredMailer $deferredMailer,
     ) {}
 
     /**
@@ -37,8 +45,27 @@ class PasswordResetController extends AbstractController
         return $this->turnstileVerifier->verify($token, $request->getClientIp());
     }
 
-    #[Route('/password/forgot/', name: 'forgot', methods: ['GET', 'POST'])]
-    public function requestReset(Request $request, MailerInterface $mailer): Response
+    /**
+     * Blocks until LOOKUP_TIME_FLOOR_US has elapsed since $startedAt, so both branches
+     * of the account lookup take the same observable time.
+     *
+     * A constant floor is used rather than a random delay on purpose: jitter only adds
+     * noise, and an attacker averaging over enough samples still recovers the mean
+     * difference. A fixed deadline leaks nothing.
+     *
+     * @param int $startedAt an hrtime(true) reading from before the lookup began
+     */
+    private function padToLookupTimeFloor(int $startedAt): void
+    {
+        $elapsedUs = intdiv(hrtime(true) - $startedAt, 1_000);
+
+        if ($elapsedUs < self::LOOKUP_TIME_FLOOR_US) {
+            usleep(self::LOOKUP_TIME_FLOOR_US - $elapsedUs);
+        }
+    }
+
+    #[Route('/forgot/', name: 'forgot', methods: ['GET', 'POST'])]
+    public function requestReset(Request $request): Response
     {
         if ($this->getUser()) {
             return $this->redirectToRoute('dashboard');
@@ -62,52 +89,44 @@ class PasswordResetController extends AbstractController
                 return $this->redirectToRoute('user_password_forgot');
             }
 
-            /** @var User $user */
-            $user = $this->em->getRepository(User::class)->findOneBy(['email' => $emailInput]);
+            // Everything from here to padToLookupTimeFloor() must stay inside the timed
+            // window — it is the only work that differs between a hit and a miss.
+            $startedAt = hrtime(true);
+
+            $user = $this->userRepository->findOneByEmail($emailInput);
 
             // Protect against user enumeration by displaying a success message regardless of email existence
             if ($user) {
-                // Generate a cryptographically secure token
-                $resetToken = bin2hex(random_bytes(32));
-
-                // Set temporary mock reset values directly into session or database
-                // (Assuming user record or auxiliary entity tracks token + expiration)
-                $session = $request->getSession();
-                $session->set('pwd_reset_token_' . $resetToken, [
-                    'email' => $user->email,
-                    'expires_at' => new \DateTimeImmutable('+1 hour')->getTimestamp()
-                ]);
+                // Only the hash is stored, so a database read cannot be replayed as a
+                // reset link. Issuing invalidates any token previously sent to this user.
+                $resetToken = $user->issueResetToken();
+                $this->em->flush();
 
                 $resetUrl = $this->generateUrl('user_password_reset', ['token' => $resetToken],UrlGeneratorInterface::ABSOLUTE_URL);
 
-                // Send the reset notification email
-                $email = new TemplatedEmail()
-                    ->to($user->email)
-                    ->subject('Reset Your Security Workspace Credentials')
-                    ->htmlTemplate('emails/user_reset_password.html.twig')
-                    ->context([
-                        'resetUrl' => $resetUrl,
-                    ]);
-
-                try {
-                    $mailer->send($email);
-                } catch (TransportExceptionInterface $e) {
-                    $this->addFlash('error', 'An error occurred while sending the password reset email. Please try again later.');
-                } catch (\Exception $e) {
-                    $this->addFlash('error', $e->getMessage());
-                    $this->addFlash('error', 'An unexpected error occurred while sending the password reset email. Please try again later.');
-                    return $this->redirectToRoute('user_password_forgot');
-                }
+                // Deferred to kernel.terminate rather than sent inline: the SMTP round-trip
+                // would otherwise make this branch visibly slower than the not-found branch.
+                $this->deferredMailer->defer(
+                    new TemplatedEmail()
+                        ->to($user->email)
+                        ->subject('Reset Your Symfony Options Password')
+                        ->htmlTemplate('emails/user_reset_password.html.twig')
+                        ->context([
+                            'resetUrl' => $resetUrl,
+                        ])
+                );
             }
 
+            $this->padToLookupTimeFloor($startedAt);
+
             $this->addFlash('success', 'If a matching account exists, a secure password reset link has been dispatched to your inbox.');
-            return $this->redirectToRoute('user_password_forgot');
+            return $this->redirectToRoute('security_login');
         }
 
         return $this->render('security/forgot_password_request.html.twig');
     }
 
-    #[Route('/reset/{token}', name: 'reset', methods: ['GET', 'POST'])]
+    #[Route('/reset/{token}', name: 'reset', requirements: ['token' => '[0-9a-f]{64}'], methods: ['GET', 'POST'])]
     public function executeReset(
         string $token,
         Request $request,
@@ -117,18 +136,10 @@ class PasswordResetController extends AbstractController
             return $this->redirectToRoute('dashboard');
         }
 
-        $session = $request->getSession();
-        $tokenData = $session->get('pwd_reset_token_' . $token);
+        $user = $this->userRepository->findOneByResetToken($token);
 
-        if (!$tokenData || $tokenData['expires_at'] < time()) {
+        if (!$user || !$user->isResetTokenValid($token, new \DateTimeImmutable())) {
             $this->addFlash('danger', 'The password reset token is invalid, has expired, or has already been used.');
-            return $this->redirectToRoute('user_password_forgot');
-        }
-
-        /** @var User $user */
-        $user = $this->em->getRepository(User::class)->findOneBy(['email' => $tokenData['email']]);
-        if (!$user) {
-            $this->addFlash('danger', 'The user associated with this token could not be verified.');
             return $this->redirectToRoute('user_password_forgot');
         }
 
@@ -145,18 +156,23 @@ class PasswordResetController extends AbstractController
             }
 
             $newPassword = $request->request->get('new_password');
-            $newPublicKey = $request->request->get('new_public_key');
-            $newEncPrivateKeyPayload = $request->request->get('new_encrypted_private_key');
+            $confirmPassword = $request->request->get('confirm_password');
 
-            if (empty($newPassword) || empty($newPublicKey) || empty($newEncPrivateKeyPayload)) {
-                $this->addFlash('danger', 'Cryptographic identity parameters are missing. Refusing server-side authentication update.');
+            if (empty($newPassword)) {
+                $this->addFlash('danger', 'New Password missing.');
+                return $this->redirectToRoute('user_password_reset', ['token' => $token]);
+            }
+
+            if ($newPassword !== $confirmPassword) {
+                $this->addFlash('danger', 'Passwords do not match.');
                 return $this->redirectToRoute('user_password_reset', ['token' => $token]);
             }
 
             $hashedPassword = $passwordHasher->hashPassword($user, $newPassword);
             $user->password = $hashedPassword;
 
-            $session->remove('pwd_reset_token_' . $token);
+            // Burn the token so the link cannot be replayed.
+            $user->clearResetToken();
             $this->em->flush();
 
             $this->addFlash('success', 'Your password has been successfully reset!');

@@ -8,7 +8,8 @@ export default class extends Controller {
         // Spin telemetry marker. With explicit rendering Turnstile reads the
         // action from the render options, not from a data-action attribute
         // (which Stimulus would also try to parse as an action descriptor).
-        action: { type: String, default: 'turnstile-spin-v2' }
+        action: { type: String, default: 'turnstile-spin-v2' },
+        size: { type: String, default: 'normal' }
     }
 
     connect() {
@@ -35,9 +36,15 @@ export default class extends Controller {
 
         if (typeof window.turnstile !== 'undefined') {
             if (!this.widgetId) {
+                // A Turbo cache restore replays the snapshot taken before the
+                // last disconnect, which can still hold a dead widget iframe.
+                // Turnstile refuses to render into an occupied container.
+                widgetElement.replaceChildren();
+
                 this.widgetId = window.turnstile.render(widgetElement, {
                     sitekey: this.sitekeyValue,
                     action: this.actionValue,
+                    size: this.sizeValue,
                     callback: () => this.enableSubmit(),
                     'expired-callback': () => this.disableSubmit(),
                     'error-callback': () => this.disableSubmit(),

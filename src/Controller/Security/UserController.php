@@ -6,7 +6,6 @@ use App\Entity\User;
 use App\Form\User\UserEditForm;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
@@ -16,9 +15,6 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[Route('user', name: 'user_')]
 class UserController extends AbstractController
 {
-    public function __construct(#[Autowire(param: 'kernel.secret')]
-                                private readonly string $kernelSecret) {}
-
     #[Route(path: '/edit', name: 'edit')]
     #[IsGranted('IS_AUTHENTICATED_REMEMBERED')]
     public function edit(Request $request, UserPasswordHasherInterface $passwordHasher, EntityManagerInterface $em): Response
@@ -59,9 +55,12 @@ class UserController extends AbstractController
             // has no effect on login!!
             $user->isActivated = true;
 
-            // create new confirmation hash to pass to set_password script (for security)
-            $hash = md5(time().$this->kernelSecret);
-            $user->confirmationHash = $hash;
+            // Burn the activation hash so the activation link cannot be replayed.
+            $user->confirmationHash = null;
+
+            // Hand the freshly activated user straight to the set-password form using a
+            // real reset token, which is what user_password_reset expects.
+            $resetToken = $user->issueResetToken();
 
             $em->persist($user);
             $em->flush();
@@ -69,8 +68,7 @@ class UserController extends AbstractController
             $this->addFlash('success', 'Your account has been activated.');
 
             return $this->redirectToRoute('user_password_reset', [
-                'id' => $user->id,
-                'hash' => $hash,
+                'token' => $resetToken,
             ]);
         }
 

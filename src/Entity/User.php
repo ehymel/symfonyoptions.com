@@ -19,9 +19,16 @@ use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: UserRepository::class)]
+#[ORM\Index(name: 'idx_user_reset_token_hash', columns: ['reset_token_hash'])]
 #[UniqueEntity(fields: ['email'], message: 'This email address is already in use.')]
 class User implements UserInterface, PasswordAuthenticatedUserInterface, TotpTwoFactorInterface, EmailTwoFactorInterface, TwoFactorTextInterface, Stringable
 {
+    /**
+     * How long a password reset link stays usable. Mirrored in the copy of
+     * emails/user_reset_password.html.twig.
+     */
+    public const string RESET_TOKEN_LIFETIME = '+1 hour';
+
     // can impersonate another user in url by adding ?_switch_user=jsmith to impersonate jsmith
     public function __construct()
     {
@@ -61,6 +68,16 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, TotpTwo
 
     #[ORM\Column(nullable: true)]
     public ?string $confirmationHash = null;
+
+    /**
+     * SHA-256 of the raw password reset token. The raw token is only ever sent
+     * in the reset email and is never persisted.
+     */
+    #[ORM\Column(length: 64, nullable: true)]
+    public ?string $resetTokenHash = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    public ?\DateTimeImmutable $resetTokenExpiresAt = null;
 
     #[ORM\Column]
     public bool $isActivated = false;
@@ -109,6 +126,53 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, TotpTwo
     public function eraseCredentials(): void
     {
         $this->plainPassword = null;
+    }
+
+    /**
+     * The raw token carries 256 bits of entropy, so a plain SHA-256 is enough here —
+     * it is not guessable and does not need a slow password hash.
+     */
+    public static function hashResetToken(string $rawToken): string
+    {
+        return hash('sha256', $rawToken);
+    }
+
+    /**
+     * Issues a fresh reset token, invalidating any token previously issued to this
+     * user, and returns the raw value. Only the hash is retained, so this is the one
+     * and only chance to read the raw token.
+     */
+    public function issueResetToken(): string
+    {
+        $rawToken = bin2hex(random_bytes(32));
+        $this->setResetToken($rawToken, new \DateTimeImmutable(self::RESET_TOKEN_LIFETIME));
+
+        return $rawToken;
+    }
+
+    public function setResetToken(string $rawToken, \DateTimeImmutable $expiresAt): void
+    {
+        $this->resetTokenHash = self::hashResetToken($rawToken);
+        $this->resetTokenExpiresAt = $expiresAt;
+    }
+
+    public function clearResetToken(): void
+    {
+        $this->resetTokenHash = null;
+        $this->resetTokenExpiresAt = null;
+    }
+
+    public function isResetTokenValid(string $rawToken, \DateTimeImmutable $now): bool
+    {
+        if (null === $this->resetTokenHash || null === $this->resetTokenExpiresAt) {
+            return false;
+        }
+
+        if ($this->resetTokenExpiresAt <= $now) {
+            return false;
+        }
+
+        return hash_equals($this->resetTokenHash, self::hashResetToken($rawToken));
     }
 
     public function __serialize(): array

@@ -31,13 +31,20 @@ final class WidgetRenderSmokeTest extends WebTestCase
 
         $widget = $crawler->filter('form div.cf-turnstile');
         self::assertCount(1, $widget, 'widget must sit inside the form so the token is submitted');
-        self::assertSame('turnstile-spin-v2', $widget->attr('data-action'));
-        self::assertNotEmpty($widget->attr('data-sitekey'));
 
+        $scope = $crawler->filter('form [data-controller="turnstile"]');
+        self::assertCount(1, $scope, 'widget must be driven by the turnstile controller');
+        self::assertSame('turnstile-spin-v2', $scope->attr('data-turnstile-action-value'));
+        self::assertNotEmpty($scope->attr('data-turnstile-sitekey-value'), 'sitekey must be injected');
+
+        // Turbo Drive swaps the body without re-running scripts, so implicit
+        // rendering never fires. A hardcoded api.js tag also defines
+        // window.turnstile in implicit mode, which suppresses the controller's
+        // explicit render -- the exact bug this page regressed on before.
         self::assertCount(
-            1,
+            0,
             $crawler->filter('script[src^="https://challenges.cloudflare.com/turnstile/v0/api.js"]'),
-            'api.js must be loaded exactly once'
+            'api.js must be injected by the controller, never hardcoded in the template'
         );
     }
 

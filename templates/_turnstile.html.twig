@@ -1,23 +1,26 @@
 {#
-    Cloudflare Turnstile widget (implicit render).
+    Cloudflare Turnstile widget (explicit render via the `turnstile` Stimulus
+    controller in assets/controllers/turnstile_controller.js).
 
-    Turnstile scans for `.cf-turnstile` on load and injects a hidden
-    `cf-turnstile-response` input into the enclosing <form>, which the
-    server-side siteverify call then validates.
+    Explicit rendering is mandatory here because Turbo Drive is enabled app-wide
+    (assets/controllers.json -> @symfony/ux-turbo/turbo-core). Cloudflare's
+    api.js scans for `.cf-turnstile` only once, when the script first executes,
+    so a Turbo body swap would leave the widget unrendered. The controller
+    renders on connect and calls turnstile.remove() on disconnect, so the widget
+    survives navigation in both directions.
 
-    Requires api.js on the page:
-        {% block javascripts %}
-            {{ parent() }}
-            {{ include('_turnstile_script.html.twig') }}
-        {% endblock %}
+    Do NOT also load api.js from a {% block javascripts %}. A second, implicit-mode
+    copy of the script suppresses the explicit render and the widget disappears.
 
-    `data-action` is the Spin telemetry marker for account-level attribution.
-    Keep it on every widget.
+    The Spin telemetry marker is passed as `data-turnstile-action-value`, not
+    `data-action` -- Stimulus would try to parse the latter as an action descriptor.
 
     Params:
-        size  - normal (default) | flexible | compact
+        size - normal (default) | flexible | compact
 #}
-<div class="cf-turnstile"
-     data-sitekey="{{ cloudflare_turnstile_site_key }}"
-     data-action="turnstile-spin-v2"
-     data-size="{{ size|default('normal') }}"></div>
+<div data-controller="turnstile"
+     data-turnstile-sitekey-value="{{ cloudflare_turnstile_site_key }}"
+     data-turnstile-action-value="turnstile-spin-v2"
+     data-turnstile-size-value="{{ size|default('normal') }}">
+    <div class="cf-turnstile" data-turnstile-target="widget"></div>
+</div>

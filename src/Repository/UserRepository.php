@@ -58,6 +58,15 @@ class UserRepository extends ServiceEntityRepository implements PublicKeyCredent
     }
 
     /**
+     * Looks up the owner of a raw password reset token. Expiry is not checked here —
+     * call User::isResetTokenValid() on the result.
+     */
+    public function findOneByResetToken(string $rawToken): ?User
+    {
+        return $this->findOneBy(['resetTokenHash' => User::hashResetToken($rawToken)]);
+    }
+
+    /**
      * @throws InvalidDataException
      */
     public function findOneByUsername(string $username): ?PublicKeyCredentialUserEntity

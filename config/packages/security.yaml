@@ -59,7 +59,8 @@ security:
 
     role_hierarchy:
         ROLE_SUPERUSER: [ROLE_ADMIN, ROLE_ALLOWED_TO_SWITCH]  # ROLE_ALLOWED_TO_SWITCH allows impersonation of other users
-        ROLE_ADMIN: [ROLE_USER]  # can add/edit users
+        ROLE_ADMIN: [ROLE_USER, ROLE_TRADER]  # can add/edit users
+        ROLE_TRADER: []
         ROLE_USER: []
 
 when@test:

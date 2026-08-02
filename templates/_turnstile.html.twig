@@ -15,6 +15,12 @@
     The Spin telemetry marker is passed as `data-turnstile-action-value`, not
     `data-action` -- Stimulus would try to parse the latter as an action descriptor.
 
+    Submit buttons in the enclosing <form> are disabled until Turnstile returns a
+    token. The controller finds them itself, because this partial scopes it to the
+    widget and any button is a sibling outside that scope. To gate a specific button
+    instead, put `data-controller="turnstile"` on a wrapper around both the widget and
+    the button and mark it `data-turnstile-target="submit"` (see login.html.twig).
+
     Params:
         size - normal (default) | flexible | compact
 #}

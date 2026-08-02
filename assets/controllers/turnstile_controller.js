@@ -74,15 +74,40 @@ export default class extends Controller {
         }
     }
 
-    enableSubmit() {
+    /**
+     * Buttons to keep disabled until Turnstile hands back a token.
+     *
+     * An explicit `submit` target wins: login.html.twig scopes this controller to a
+     * wrapper holding both the widget and its button, so it can name the button
+     * directly. Templates that pull in _turnstile.html.twig cannot -- that partial
+     * scopes the controller to the widget alone, leaving the button a sibling outside
+     * it and therefore unreachable as a Stimulus target. Fall back to the enclosing
+     * form so those pages are gated too.
+     */
+    get gatedButtons() {
         if (this.hasSubmitTarget) {
-            this.submitTarget.disabled = false;
+            return this.submitTargets;
         }
+
+        const form = this.element.closest('form');
+
+        if (!form) {
+            return [];
+        }
+
+        // A bare <button> defaults to type="submit" and must be caught. Explicit
+        // type="button" ones drive other controllers (passkey sign-in, login step
+        // navigation, "not you?") and have to stay clickable.
+        return Array.from(
+            form.querySelectorAll('button:not([type]), button[type="submit"], input[type="submit"]')
+        );
+    }
+
+    enableSubmit() {
+        this.gatedButtons.forEach((button) => { button.disabled = false; });
     }
 
     disableSubmit() {
-        if (this.hasSubmitTarget) {
-            this.submitTarget.disabled = true;
-        }
+        this.gatedButtons.forEach((button) => { button.disabled = true; });
     }
 }

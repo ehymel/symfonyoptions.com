@@ -94,7 +94,9 @@ class PasswordResetController extends AbstractController
                 } catch (TransportExceptionInterface $e) {
                     $this->addFlash('error', 'An error occurred while sending the password reset email. Please try again later.');
                 } catch (\Exception $e) {
+                    $this->addFlash('error', $e->getMessage());
                     $this->addFlash('error', 'An unexpected error occurred while sending the password reset email. Please try again later.');
+                    return $this->redirectToRoute('user_password_forgot');
                 }
             }
 

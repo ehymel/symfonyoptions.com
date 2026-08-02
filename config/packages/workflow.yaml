@@ -1,0 +1,34 @@
+framework:
+    workflows:
+        option_position_state:
+            type: 'state_machine'
+            audit_trail:
+                enabled: true
+            marking_store:
+                type: 'method'
+                property: 'status'
+            supports:
+                - App\Entity\Position
+            initial_marking: proposed
+            places:
+                - proposed
+                - order_pending
+                - open
+                - closing_pending
+                - closed
+            transitions:
+                submit_order:
+                    from: proposed
+                    to: order_pending
+                fill_order:
+                    from: order_pending
+                    to: open
+                submit_close_order:
+                    from: open
+                    to: closing_pending
+                fill_close_order:
+                    from: closing_pending
+                    to: closed
+                reject_order:
+                    from: order_pending
+                    to: proposed

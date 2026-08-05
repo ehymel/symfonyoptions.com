@@ -12,6 +12,7 @@
         "doctrine/doctrine-migrations-bundle": "^4.0",
         "doctrine/orm": "^3.6",
         "erkens/2fa-text": "^3.2",
+        "guzzlehttp/guzzle": "*",
         "pagerfanta/doctrine-collections-adapter": "^4.8",
         "pagerfanta/doctrine-orm-adapter": "^4.8",
         "pagerfanta/twig": "^4.8",
